@@ -6,7 +6,7 @@ def build_circ(f, m, max_s, max_depth):
 
     for s in range(1, max_s + 1):
         solver = Solver()
-        total_gates = n + s
+        total_gates = n + s 
 
         g = [[ Bool("g_" + str(i) + "_" + str(j)) for j in range(1 << n)] for i in range(total_gates)] #pre-construct matrix
 
@@ -22,7 +22,11 @@ def build_circ(f, m, max_s, max_depth):
                 solver.add(g[i][j] == (bits[i] == 1)) #first n gates
 
         connections = {}
+        const_conn = {}
         for i in range(n, total_gates):
+            c1 = Int("c1_" + str(i))
+            const_conn[i] = c1
+            solver.add(c1 >= 0, c1 < m) #constatnt 1 wires
             for k in range(i):
                 c = Int("c_" + str(i) + "_" + str(k))
                 connections[(i, k)] = c #rest of gates
@@ -35,8 +39,12 @@ def build_circ(f, m, max_s, max_depth):
 
         for i in range(n, total_gates):
             for j in range(1 << n):
-                terms = [connections[(i, k)] * If(g[k][j], 1, 0) for k in range(i)]
-                solver.add(g[i][j] == (Sum(*terms) % m == 0)) #mod gate behavior
+                terms = []
+                terms.append(const_conn[i])
+                for k in range(i):
+                    terms.append(connections[(i, k)] * If(g[k][j], 1, 0))
+                total = Sum(*terms)
+                solver.add(g[i][j] == (total % m == 0)) #mod gate behavior
 
         for j, out_val in enumerate(f):
             solver.add(g[total_gates - 1][j] == (out_val == 1))
@@ -47,7 +55,6 @@ def build_circ(f, m, max_s, max_depth):
             return solver.model(), s
 
     return None, None
-
 
 # execution for specific function:
 
@@ -68,10 +75,12 @@ n = (len(f) - 1).bit_length()
 total_gates = n + s
 
 connections = {}
+const_conn = {}
 for i in range(n, total_gates):
+    const_conn[i] = Int("c1_" + str(i))
     for k in range(i):
         connections[(i, k)] = Int("c_" + str(i) + "_" + str(k))
-depth = [Int("d_" + str(i)) for i in range(total_gates)]
+depth = [ Int("d_" + str(i)) for i in range(total_gates) ]
 
 print("\ninputs:")
 for i in range(n):
@@ -79,26 +88,27 @@ for i in range(n):
 
 print("\nMOD gates:")
 for i in range(n, total_gates):
-    drivers = []
+    parts = []
+    mult1 = model.eval(const_conn[i]).as_long()
+    if mult1 > 0:
+        if mult1 > 1:
+            parts.append(str(mult1) + "*1")
+        else:
+            parts.append("1")
     for k in range(i):
         mult = model.eval(connections[(i, k)]).as_long()
         if mult > 0:
-            drivers.append((k, mult))
-
-    if len(drivers) > 0:
-        parts = []
-        for k, mult in drivers:
             if mult > 1:
                 parts.append(str(mult) + "*g" + str(k))
             else:
                 parts.append("g" + str(k))
+    if len(parts) > 0:
         driver_str = ", ".join(parts)
     else:
         driver_str = "—"
-
     d_val = model.eval(depth[i]).as_long()
-    print("  Gate " + str(i) + " (depth " +
-          str(d_val) + "): MOD_" + str(m) +
+    print("  Gate " + str(i) +
+          " (depth " + str(d_val) + "): MOD_" + str(m) +
           "(" + driver_str + ")")
 
 final_depth = model.eval(Int("d_" + str(total_gates - 1)))
