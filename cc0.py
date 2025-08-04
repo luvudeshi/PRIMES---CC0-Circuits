@@ -1,14 +1,32 @@
 from z3 import *
+import random
 
-def build_circ(f, m, max_s, max_depth):
+def add_assignment_constraints(solver, f, m, n, s, assignments, const_conn, connections, j):
+    total_gates = n + s
+
+    for i in range(n):
+        solver.add(Bool("g_" + str(i) + "_" + str(j)) == (assignments[j][i] == 1))
+
+    for i in range(n, total_gates):
+        terms = [const_conn[i]]
+        for k in range(i):
+            terms.append(connections[(i, k)] * If(Bool("g_" + str(k) + "_" + str(j)), 1, 0))
+        total = Sum(*terms)
+        solver.add(Bool("g_" + str(i) + "_" + str(j)) == ((total % m) == 0))
+
+    
+    solver.add(Bool("g_" + str(total_gates-1) + "_" + str(j)) == (f[j] == 1))
+
+
+def build_circ(f, m, max_s, max_depth, initial_samples=8, max_iters=50):
+
     n = (len(f) - 1).bit_length()
     assignments = [list(map(int, format(i, '0' + str(n) + 'b'))) for i in range(1 << n)] #lex ordering of binary strings
-
+    N = 1 << n
+    
     for s in range(1, max_s + 1):
         solver = Solver()
-        total_gates = n + s 
-
-        g = [[ Bool("g_" + str(i) + "_" + str(j)) for j in range(1 << n)] for i in range(total_gates)] #pre-construct matrix
+        total_gates = n + s
 
         depth = [Int("d_" + str(i)) for i in range(total_gates)] #gate depths
         for i in range(n):
@@ -16,10 +34,6 @@ def build_circ(f, m, max_s, max_depth):
         if max_depth is not None:
             for i in range(total_gates):
                 solver.add(depth[i] <= max_depth)
-
-        for i in range(n):
-            for j, bits in enumerate(assignments):
-                solver.add(g[i][j] == (bits[i] == 1)) #first n gates
 
         connections = {}
         const_conn = {}
@@ -29,7 +43,7 @@ def build_circ(f, m, max_s, max_depth):
             solver.add(c1 >= 0, c1 < m) #constatnt 1 wires
             for k in range(i):
                 c = Int("c_" + str(i) + "_" + str(k))
-                connections[(i, k)] = c #rest of gates
+                connections[(i, k)] = c 
                 solver.add(c >= 0, c < m)
 
         for i in range(n, total_gates):
@@ -37,30 +51,43 @@ def build_circ(f, m, max_s, max_depth):
             for k in range(i):
                 solver.add(Implies(connections[(i, k)] > 0, depth[i] >= depth[k] + 1)) #acyclicity
 
-        for i in range(n, total_gates):
-            for j in range(1 << n):
-                terms = []
-                terms.append(const_conn[i])
-                for k in range(i):
-                    terms.append(connections[(i, k)] * If(g[k][j], 1, 0))
-                total = Sum(*terms)
-                solver.add(g[i][j] == (total % m == 0)) #mod gate behavior
+        sample = random.sample(range(N), k=min(initial_samples, N)) #choose sample
+        for j in sample:
+            add_assignment_constraints(solver, f, m, n, s, assignments, const_conn, connections, j)
 
-        for j, out_val in enumerate(f):
-            solver.add(g[total_gates - 1][j] == (out_val == 1))
-        if max_depth is not None:
-            solver.add(depth[total_gates - 1] <= max_depth)
+        for _ in range(max_iters):
+            if solver.check() != sat:
+                break
 
-        if solver.check() == sat:
-            return solver.model(), s
+            model = solver.model()
+
+            mismatch = None
+            for j, bits in enumerate(assignments):
+                gate_vals = [bool(bits[i]) for i in range(n)]
+                for i in range(n, total_gates):
+                    tot = model[const_conn[i]].as_long()
+                    for k in range(i):
+                        if gate_vals[k]:
+                            tot += model[connections[(i, k)]].as_long()
+                    gate_vals.append((tot % m) == 0)
+                if gate_vals[-1] != bool(f[j]):
+                    mismatch = j
+                    break
+
+            if mismatch is None:
+                return model, s  
+
+            add_assignment_constraints(solver, f, m, n, s,assignments, const_conn, connections, mismatch) #add new constraint
+
 
     return None, None
+
 
 # execution for specific function:
 
 # f = [1, 0, 0, 0, 0, 0, 0, 0]
-f = [0, 1, 1, 1, 1, 1, 1, 1]
-m = 3
+f = [0] + [1]*31
+m = 15
 max_s = 5
 max_d = 3
 
