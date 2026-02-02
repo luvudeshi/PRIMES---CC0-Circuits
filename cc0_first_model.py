@@ -26,9 +26,9 @@ def build_circ(f, m, max_s, max_depth):
     w = adder_bitwidth(m)
     m_bv = BitVecVal(m, w)
 
-    allowed_first_vals = prop_div(m)  
+    allowed_first_vals = prop_div(m)
 
-    for s in range(1, max_s + 1):
+    for s in range(4, max_s + 1):
 
         total = n + s
         max_d_cap = max_depth if max_depth is not None else total
@@ -49,7 +49,7 @@ def build_circ(f, m, max_s, max_depth):
         const_conn = {}
         connections = {}
 
-        def bv_in_range(x):  
+        def bv_in_range(x):
             return ULT(x, m_bv)
 
         for i in range(n, total):
@@ -126,12 +126,12 @@ def build_circ(f, m, max_s, max_depth):
 
 
 # execution for specific function:
+# function's truth table goes here
+f = [int(bin(i).count("1") % 4 == 0) for i in range(1 << 7)] #MOD4 function on 7 bits
 
-# f = [1, 0, 0, 0, 0, 0, 0, 0]
-f = [0] + [1]*127
 m = 5
 max_s = 5
-max_d = 3
+max_d = 2
 
 start_time = time.time()
 model, s = build_circ(f, m, max_s, max_d)
@@ -180,7 +180,7 @@ for i in range(n, total_gates):
     if parts:
         driver_str = ", ".join(parts)
     else:
-        driver_str = "—"
+        driver_str = "-"
     d_val = model.eval(depth[i]).as_long()
     print("  Gate " + str(i) + " (depth " + str(d_val) + "): MOD_" + str(m) + "(" + driver_str + ")")
 
